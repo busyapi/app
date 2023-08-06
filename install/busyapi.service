@@ -7,7 +7,7 @@ Restart=no
 Type=exec
 ExecStart=/usr/local/bin/busyapi -a 127.0.0.1
 ExecStop=/usr/bin/killall busyapi
-Environment=
+EnvironmentFile=/etc/busyapi
 
 [Install]
 WantedBy=multi-user.target
