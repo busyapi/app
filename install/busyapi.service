@@ -1,0 +1,13 @@
+[Unit]
+Description=BusyAPI Process Manager
+After=network.target
+
+[Service]
+Restart=no
+Type=exec
+ExecStart=/usr/local/bin/busyapi -a 127.0.0.1
+ExecStop=/usr/bin/killall busyapi
+Environment=
+
+[Install]
+WantedBy=multi-user.target

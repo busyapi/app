@@ -1,0 +1,8 @@
+#!/bin/env bash
+
+SCRIPT_DIR=$(dirname "$0")
+sudo cp $SCRIPT_DIR/../target/release/busyapi /usr/local/bin
+sudo cp -v $SCRIPT_DIR/busyapi.service /etc/systemd/system
+sudo systemctl enable busyapi.service
+sudo systemctl start busyapi.service
+sudo systemctl status busyapi.service
