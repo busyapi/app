@@ -88,7 +88,7 @@ async fn handle_connection(mut stream: TcpStream, max_timeout: u8, peer: SocketA
 
     let mongodb_user = env::var("BUSYAPI_MONGODB_USER").unwrap_or_default();
     let mongodb_password = env::var("BUSYAPI_MONGODB_PASSWORD").unwrap_or_default();
-    let mongodb_host = env::var("BUSYAPI_MONGODB_PASSWORD").unwrap_or_default();
+    let mongodb_host = env::var("BUSYAPI_MONGODB_HOST").unwrap_or_default();
     let mut client_options = match ClientOptions::parse(format!(
         "mongodb+srv://{}:{}@{}/?retryWrites=true&w=majority",
         mongodb_user, mongodb_password, mongodb_host
