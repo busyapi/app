@@ -65,7 +65,8 @@ async fn handle_connection(mut stream: TcpStream, max_timeout: u8, peer: SocketA
         return;
     }
 
-    let re = Regex::new(r"^GET /(?<timeout>\d*) HTTP/1.(0|1)").unwrap();
+    let re =
+        Regex::new(r"^(GET|POST|PUT|PATCH|DELETE|OPTIONS) /(?<timeout>\d*) HTTP/1.(0|1)").unwrap();
     let Some(caps) = re.captures(req) else {
         send_reponse(stream, "400 Bad Request").await;
         return;
