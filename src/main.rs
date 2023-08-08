@@ -1,10 +1,12 @@
+mod mongodbclient;
+
 use async_std::net::{SocketAddr, TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task::{self, spawn};
 use clap::Parser;
 use futures::stream::StreamExt;
-use mongodb::bson::{doc, DateTime, Document};
-use mongodb::{options::ClientOptions, Client};
+use mongodb::bson::{doc, DateTime};
+use mongodbclient::MongoDbClient;
 use regex::Regex;
 use std::env;
 use std::time::Duration;
@@ -90,46 +92,32 @@ async fn handle_connection(mut stream: TcpStream, max_timeout: u8, peer: SocketA
     let mongodb_user = env::var("BUSYAPI_MONGODB_USER").unwrap_or_default();
     let mongodb_password = env::var("BUSYAPI_MONGODB_PASSWORD").unwrap_or_default();
     let mongodb_host = env::var("BUSYAPI_MONGODB_HOST").unwrap_or_default();
-    let mut client_options = match ClientOptions::parse(format!(
-        "mongodb+srv://{}:{}@{}/?retryWrites=true&w=majority",
-        mongodb_user, mongodb_password, mongodb_host
-    ))
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("failed to connect to MongoDB, err = {:?}", e);
-            return;
-        }
-    };
 
-    // Manually set an option.
-    client_options.app_name = Some("BusyAPI".to_string());
+    let mongo_client =
+        match MongoDbClient::new(mongodb_user, mongodb_password, mongodb_host, "busyapi").await {
+            Ok(v) => v,
+            Err(err) => {
+                eprintln!("{:?}", err);
+                return;
+            }
+        };
 
-    // Get a handle to the deployment.
-    let client = match Client::with_options(client_options) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("failed to create MongoDB client, err = {:?}", e);
-            return;
-        }
-    };
-
-    let db = client.database("busyapi");
-    let collection = db.collection::<Document>("requests");
-    let res = collection
-        .insert_one(
+    match mongo_client
+        .insert(
+            "requests",
             doc! {
                 "timestamp": DateTime::now(),
                 "ipAddress": peer.ip().to_string(),
                 "timeout": u32::from(timeout)
             },
-            None,
         )
-        .await;
-
-    if res.is_err() {
-        eprintln!("failed inserting doc in MongoDB, err = {:?}", res);
+        .await
+    {
+        Ok(_) => (),
+        Err(err) => {
+            eprintln!("{:?}", err);
+            return;
+        }
     };
 }
 
