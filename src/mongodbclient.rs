@@ -39,7 +39,7 @@ impl MongoDbClient {
     pub async fn insert(self: &Self, collection: &str, doc: Document) -> Result<bool, String> {
         let collection = self.db.collection::<Document>(collection);
         let res = match collection.insert_one(doc, None).await {
-            Ok(v) => true,
+            Ok(_) => true,
             Err(e) => return Err(format!("Failed inserting doc in MongoDB, err = {:?}", e)),
         };
 

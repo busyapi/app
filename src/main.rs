@@ -1,41 +1,51 @@
+extern crate derive_builder;
+
+mod config;
 mod mongodbclient;
 
 use async_std::net::{SocketAddr, TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task::{self, spawn};
 use clap::Parser;
+use config::Config;
 use futures::stream::StreamExt;
 use mongodb::bson::{doc, DateTime};
 use mongodbclient::MongoDbClient;
 use regex::Regex;
+use serde::Deserialize;
 use std::env;
+use std::fs;
 use std::time::Duration;
 
-#[derive(Parser, Debug)]
-struct Args {
-    #[arg(short, long, default_value_t = String::from("0.0.0.0"), help = "Bind address")]
-    address: String,
+#[derive(Parser, Debug, Deserialize)]
+pub struct Args {
+    #[arg(short, long, help = "Bind address")]
+    address: Option<String>,
 
-    #[arg(short, long, default_value_t = 7878, help = "Bind port")]
-    port: u16,
+    #[arg(short, long, help = "Bind port")]
+    port: Option<u16>,
 
     #[arg(
         short,
         long,
-        default_value_t = 60,
-        help = "Maximum allowed timeout in seconds"
+        help = "Maximum allowed timeout in seconds (max. 255 seconds)"
     )]
-    max_timeout: u8,
+    max_timeout: Option<u8>,
+
+    #[arg(short, long, help = "Path to configuration file")]
+    config_file: Option<String>,
 }
 
 #[async_std::main]
 async fn main() {
-    let args = Args::parse();
-    let bind = format!("{}:{}", args.address, args.port);
+    let conf = configure();
 
-    println!("Starting BusyAPI server on {bind}...");
+    println!(
+        "Starting BusyAPI server on http://{}:{}...",
+        conf.address, conf.port
+    );
 
-    let listener = TcpListener::bind(format!("{}:{}", args.address, args.port))
+    let listener = TcpListener::bind(format!("{}:{}", conf.address, conf.port))
         .await
         .unwrap();
 
@@ -44,11 +54,34 @@ async fn main() {
         .for_each_concurrent(None, |tcpstream| async move {
             let tcpstream = tcpstream.unwrap();
             let peer = tcpstream.peer_addr().unwrap();
-            spawn(handle_connection(tcpstream, args.max_timeout, peer));
+            spawn(handle_connection(tcpstream, conf.max_timeout, peer));
         })
         .await;
 
     println!("Shutting down.");
+}
+
+fn configure() -> Config {
+    let args = Args::parse();
+    let mut conf = Config::new();
+
+    conf.config_file = args.config_file.clone().unwrap_or(conf.config_file);
+
+    let config_file_exists = match fs::metadata(&conf.config_file) {
+        Ok(_) => true,
+        Err(_) => false,
+    };
+
+    if config_file_exists {
+        let contents =
+            fs::read_to_string(&conf.config_file).expect("Should have been able to read the file");
+        let file_conf: Args = toml::from_str(&contents).unwrap();
+        conf.from_args(file_conf);
+    }
+
+    conf.from_args(args);
+
+    conf
 }
 
 async fn handle_connection(mut stream: TcpStream, max_timeout: u8, peer: SocketAddr) {
