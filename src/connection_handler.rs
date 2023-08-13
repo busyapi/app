@@ -1,10 +1,9 @@
-use std::env;
-use std::time::Duration;
-
 use async_std::net::{SocketAddr, TcpStream};
 use async_std::{prelude::*, task};
 use mongodb::bson::{doc, DateTime};
 use regex::Regex;
+use std::env;
+use std::time::Duration;
 
 use crate::mongodbclient::MongoDbClient;
 
