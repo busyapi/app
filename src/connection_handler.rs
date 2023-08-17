@@ -44,9 +44,10 @@ impl ConnectionHandler {
             return;
         }
 
-        // Parse equest
+        // Parse request
         let request = self.parse_request().unwrap();
 
+        // Validate the request
         if RequestValidator::validate(&request).is_err() {
             self.send_reponse("400 Bad Request").await;
             return;
@@ -68,6 +69,7 @@ impl ConnectionHandler {
             timeout = max_timeout;
         }
 
+        // Log the request
         let ip_address = self.peer.ip().to_string();
 
         spawn(async move {
@@ -75,6 +77,7 @@ impl ConnectionHandler {
             logger.log(ip_address, timeout).await;
         });
 
+        // Sleep if timeout > 0
         if timeout > 0 {
             task::sleep(Duration::from_secs(timeout.try_into().unwrap())).await;
         }
