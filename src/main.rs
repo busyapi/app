@@ -3,6 +3,7 @@ extern crate derive_builder;
 mod config;
 mod connection_handler;
 mod mongodbclient;
+mod request_validator;
 
 use async_std::net::TcpListener;
 use async_std::task::spawn;
@@ -12,7 +13,7 @@ use futures::stream::StreamExt;
 use serde::Deserialize;
 use std::fs;
 
-use crate::connection_handler::handle_connection;
+use crate::connection_handler::ConnectionHandler;
 
 #[derive(Parser, Debug, Deserialize)]
 pub struct Args {
@@ -42,20 +43,26 @@ async fn main() {
         conf.address, conf.port
     );
 
+    start_server(conf).await;
+
+    println!("Shutting down.");
+}
+
+async fn start_server<'a>(conf: Config) {
     let listener = TcpListener::bind(format!("{}:{}", conf.address, conf.port))
         .await
         .unwrap();
 
     listener
         .incoming()
-        .for_each_concurrent(None, |tcpstream| async move {
+        .for_each_concurrent(None, move |tcpstream| async move {
             let tcpstream = tcpstream.unwrap();
-            let peer = tcpstream.peer_addr().unwrap();
-            spawn(handle_connection(tcpstream, conf.max_timeout, peer));
+            let mut c = ConnectionHandler::new(tcpstream);
+            spawn(async move {
+                c.handle_connection(conf.max_timeout).await;
+            });
         })
         .await;
-
-    println!("Shutting down.");
 }
 
 fn configure() -> Config {

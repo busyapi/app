@@ -1,87 +1,134 @@
 use async_std::net::{SocketAddr, TcpStream};
 use async_std::{prelude::*, task};
+use httparse::Status::{Complete, Partial};
+use httparse::{Header, Request, EMPTY_HEADER};
 use mongodb::bson::{doc, DateTime};
 use regex::Regex;
 use std::env;
 use std::time::Duration;
 
 use crate::mongodbclient::MongoDbClient;
+use crate::request_validator::RequestValidator;
 
-pub async fn handle_connection(mut stream: TcpStream, max_timeout: u8, peer: SocketAddr) {
-    let mut buffer = [0; 20];
-    let status = stream.read(&mut buffer).await;
+pub(crate) struct ParsedRequest {
+    pub method: String,
+    pub path: String,
+}
 
-    if status.is_err() {
-        send_reponse(stream, "500 Internal Server Error").await;
-        return;
+#[derive(Debug, Clone)]
+pub(crate) struct ConnectionHandler {
+    stream: TcpStream,
+    peer: SocketAddr,
+    buffer: [u8; 1024],
+}
+
+impl ConnectionHandler {
+    pub fn new(stream: TcpStream) -> Self {
+        let peer = stream.peer_addr().unwrap();
+
+        ConnectionHandler {
+            stream,
+            peer,
+            buffer: [0; 1024],
+        }
     }
 
-    let req = std::str::from_utf8(&buffer[..]).unwrap_or("");
+    pub async fn handle_connection(&mut self, max_timeout: u8) {
+        // Try to read from stream or send en error
+        if self.stream.read(&mut self.buffer).await.is_err() {
+            self.send_reponse("500 Internal Server Error").await;
+            return;
+        }
 
-    if req.eq("") {
-        send_reponse(stream, "400 Bad Request").await;
-        return;
-    }
+        // Ignore empty requests
+        if self.buffer[0] == 0 {
+            return;
+        }
 
-    let re =
-        Regex::new(r"^(GET|POST|PUT|PATCH|DELETE|OPTIONS) /(?<timeout>\d*) HTTP/1.(0|1)").unwrap();
-    let Some(caps) = re.captures(req) else {
-        send_reponse(stream, "400 Bad Request").await;
-        return;
-    };
+        // Parse equest
+        let request = self.parse_request().unwrap();
+        match RequestValidator::validate(&request) {
+            Ok(_) => println!("OK"),
+            Err(_) => {
+                self.send_reponse("400 Bad Request").await;
+                return;
+            }
+        };
 
-    let mut timeout: u8 = match caps["timeout"].parse() {
-        Ok(n) => n,
-        Err(_) => 0,
-    };
+        let re = Regex::new(r"^/(?<timeout>\d*)$").unwrap();
+        let Some(caps) = re.captures(request.path.as_str()) else {
+            self.send_reponse("400 Bad Request").await;
+            return;
+        };
 
-    if timeout > max_timeout {
-        timeout = max_timeout;
-    }
+        let mut timeout: u8 = match caps["timeout"].parse() {
+            Ok(n) => n,
+            Err(_) => 0,
+        };
 
-    if timeout > 0 {
-        task::sleep(Duration::from_secs(timeout.try_into().unwrap())).await;
-    }
+        if timeout > max_timeout {
+            timeout = max_timeout;
+        }
 
-    send_reponse(stream, "204 No Content").await;
+        if timeout > 0 {
+            task::sleep(Duration::from_secs(timeout.try_into().unwrap())).await;
+        }
 
-    let mongodb_user = env::var("BUSYAPI_MONGODB_USER").unwrap_or_default();
-    let mongodb_password = env::var("BUSYAPI_MONGODB_PASSWORD").unwrap_or_default();
-    let mongodb_host = env::var("BUSYAPI_MONGODB_HOST").unwrap_or_default();
+        self.send_reponse("204 No Content").await;
 
-    let mongo_client =
-        match MongoDbClient::new(mongodb_user, mongodb_password, mongodb_host, "busyapi").await {
-            Ok(v) => v,
+        let mongodb_user = env::var("BUSYAPI_MONGODB_USER").unwrap_or_default();
+        let mongodb_password = env::var("BUSYAPI_MONGODB_PASSWORD").unwrap_or_default();
+        let mongodb_host = env::var("BUSYAPI_MONGODB_HOST").unwrap_or_default();
+
+        let mongo_client =
+            match MongoDbClient::new(mongodb_user, mongodb_password, mongodb_host, "busyapi").await
+            {
+                Ok(v) => v,
+                Err(err) => {
+                    eprintln!("{:?}", err);
+                    return;
+                }
+            };
+
+        match mongo_client
+            .insert(
+                "requests",
+                doc! {
+                    "timestamp": DateTime::now(),
+                    "ipAddress": self.peer.ip().to_string(),
+                    "timeout": u32::from(timeout)
+                },
+            )
+            .await
+        {
+            Ok(_) => (),
             Err(err) => {
                 eprintln!("{:?}", err);
                 return;
             }
         };
+    }
 
-    match mongo_client
-        .insert(
-            "requests",
-            doc! {
-                "timestamp": DateTime::now(),
-                "ipAddress": peer.ip().to_string(),
-                "timeout": u32::from(timeout)
-            },
-        )
-        .await
-    {
-        Ok(_) => (),
-        Err(err) => {
-            eprintln!("{:?}", err);
-            return;
+    pub fn parse_request(&mut self) -> Result<ParsedRequest, ()> {
+        let mut headers = [EMPTY_HEADER; 16];
+        let mut request = Request::new(&mut headers);
+
+        match request.parse(&self.buffer) {
+            Ok(Complete(_)) => Ok(ParsedRequest {
+                method: request.method.unwrap().to_string(),
+                path: request.path.unwrap().to_string(),
+            }),
+            Ok(Partial) => Err(()),
+            Err(_) => Err(()),
         }
-    };
-}
+    }
 
-async fn send_reponse(mut stream: TcpStream, status: &str) {
-    let response = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n");
-    stream
-        .write_all(response.as_bytes())
-        .await
-        .unwrap_or_default();
-    stream.flush().await.unwrap_or_default();
+    async fn send_reponse(&mut self, status: &str) {
+        let response = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n");
+        self.stream
+            .write_all(response.as_bytes())
+            .await
+            .unwrap_or_default();
+        self.stream.flush().await.unwrap_or_default();
+    }
 }

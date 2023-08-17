@@ -14,3 +14,4 @@ futures = "0.3.28"
 serde = "1.0.183"
 toml = "0.7.6"
 derive_builder = "0.12.0"
+httparse = { version = "1.8.0", default-features = false }
