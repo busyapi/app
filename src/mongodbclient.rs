@@ -1,21 +1,21 @@
-use std::env;
+use std::sync::Arc;
 
 use mongodb::bson::Document;
 use mongodb::{options::ClientOptions, Client, Database};
+
+use crate::config::Config;
 
 pub struct MongoDbClient {
     db: Database,
 }
 
 impl MongoDbClient {
-    pub async fn new(db: &str) -> Result<MongoDbClient, String> {
-        let username = env::var("BUSYAPI_MONGODB_USER").unwrap_or_default();
-        let password = env::var("BUSYAPI_MONGODB_PASSWORD").unwrap_or_default();
-        let host = env::var("BUSYAPI_MONGODB_HOST").unwrap_or_default();
-
+    pub async fn new(config: Arc<Config>) -> Result<MongoDbClient, String> {
         let mut client_options = match ClientOptions::parse(format!(
             "mongodb+srv://{}:{}@{}/?retryWrites=true&w=majority",
-            username, password, host
+            config.mongo_user.as_ref().unwrap(),
+            config.mongo_password.as_ref().unwrap(),
+            config.mongo_host.as_ref().unwrap()
         ))
         .await
         {
@@ -32,7 +32,7 @@ impl MongoDbClient {
             Err(e) => return Err(format!("Failed to create MongoDB client, err = {:?}", e)),
         };
 
-        let db = client.database(db);
+        let db = client.database(config.mongo_database.as_ref().unwrap());
 
         Ok(MongoDbClient { db })
     }

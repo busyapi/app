@@ -13,6 +13,7 @@ use config::Config;
 use futures::stream::StreamExt;
 use serde::Deserialize;
 use std::fs;
+use std::sync::Arc;
 
 use crate::connection_handler::ConnectionHandler;
 
@@ -33,36 +34,56 @@ pub struct Args {
 
     #[arg(short, long, help = "Path to configuration file")]
     config_file: Option<String>,
+
+    #[arg(long, help = "MongoDB user")]
+    mongo_user: Option<String>,
+
+    #[arg(long, help = "MongoDB password")]
+    mongo_password: Option<String>,
+
+    #[arg(long, help = "MongoDB host")]
+    mongo_host: Option<String>,
+
+    #[arg(long, help = "MongoDB database")]
+    mongo_database: Option<String>,
+
+    #[arg(long, help = "MongoDB collection")]
+    mongo_collection: Option<String>,
 }
 
 #[async_std::main]
 async fn main() {
-    let conf = configure();
+    let config = configure();
 
     println!(
         "Starting BusyAPI server on http://{}:{}...",
-        conf.address, conf.port
+        config.address, config.port
     );
 
-    start_server(conf).await;
+    start_server(config).await;
 
     println!("Shutting down.");
 }
 
-async fn start_server<'a>(conf: Config) {
-    let listener = TcpListener::bind(format!("{}:{}", conf.address, conf.port))
+async fn start_server<'a>(config: Config) {
+    let config = Arc::new(config);
+    let listener = TcpListener::bind(format!("{}:{}", config.address, config.port))
         .await
         .unwrap();
 
     listener
         .incoming()
-        .for_each_concurrent(None, move |tcpstream| async move {
-            let tcpstream = tcpstream.unwrap();
-            let mut c = ConnectionHandler::new(tcpstream);
+        .for_each_concurrent(None, move |tcpstream| {
+            let config = config.clone();
 
-            spawn(async move {
-                c.handle_connection(conf.max_timeout).await;
-            });
+            async move {
+                let tcpstream = tcpstream.unwrap();
+                let mut c = ConnectionHandler::new(config, tcpstream);
+
+                spawn(async move {
+                    c.handle_connection().await;
+                });
+            }
         })
         .await;
 }

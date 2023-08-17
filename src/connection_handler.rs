@@ -4,8 +4,10 @@ use async_std::{prelude::*, task};
 use httparse::Status::{Complete, Partial};
 use httparse::{Request, EMPTY_HEADER};
 use regex::Regex;
+use std::sync::Arc;
 use std::time::Duration;
 
+use crate::config::Config;
 use crate::logger::Logger;
 use crate::request_validator::RequestValidator;
 
@@ -19,20 +21,22 @@ pub(crate) struct ConnectionHandler {
     stream: TcpStream,
     peer: SocketAddr,
     buffer: [u8; 1024],
+    config: Arc<Config>,
 }
 
 impl ConnectionHandler {
-    pub fn new(stream: TcpStream) -> Self {
+    pub fn new(config: Arc<Config>, stream: TcpStream) -> Self {
         let peer = stream.peer_addr().unwrap();
 
         ConnectionHandler {
             stream,
             peer,
             buffer: [0; 1024],
+            config,
         }
     }
 
-    pub async fn handle_connection(&mut self, max_timeout: u8) {
+    pub async fn handle_connection(&mut self) {
         // Try to read from stream or send en error
         if self.stream.read(&mut self.buffer).await.is_err() {
             self.send_reponse("500 Internal Server Error").await;
@@ -65,17 +69,21 @@ impl ConnectionHandler {
             Err(_) => 0,
         };
 
-        if timeout > max_timeout {
-            timeout = max_timeout;
+        if timeout > self.config.max_timeout {
+            timeout = self.config.max_timeout;
         }
 
         // Log the request
         let ip_address = self.peer.ip().to_string();
 
-        spawn(async move {
-            let logger = Logger::new().await.unwrap();
-            logger.log(ip_address, timeout).await;
-        });
+        if self.config.can_log() {
+            let config = self.config.clone();
+
+            spawn(async move {
+                let logger = Logger::new(config).await.unwrap();
+                logger.log(ip_address, timeout).await;
+            });
+        }
 
         // Sleep if timeout > 0
         if timeout > 0 {
