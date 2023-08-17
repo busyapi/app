@@ -46,11 +46,25 @@ impl Config {
             self.max_timeout = args.max_timeout.unwrap();
         }
 
-        self.mongo_user = args.mongo_user;
-        self.mongo_password = args.mongo_password;
-        self.mongo_host = args.mongo_host;
-        self.mongo_database = args.mongo_database;
-        self.mongo_collection = args.mongo_collection;
+        if args.mongo_user.is_some() {
+            self.mongo_user = args.mongo_user;
+        }
+
+        if args.mongo_password.is_some() {
+            self.mongo_password = args.mongo_password;
+        }
+
+        if args.mongo_host.is_some() {
+            self.mongo_host = args.mongo_host;
+        }
+
+        if args.mongo_database.is_some() {
+            self.mongo_database = args.mongo_database;
+        }
+
+        if args.mongo_collection.is_some() {
+            self.mongo_collection = args.mongo_collection;
+        }
     }
 
     pub fn can_log(&self) -> bool {
