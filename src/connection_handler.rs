@@ -1,13 +1,12 @@
 use async_std::net::{SocketAddr, TcpStream};
+use async_std::task::spawn;
 use async_std::{prelude::*, task};
 use httparse::Status::{Complete, Partial};
-use httparse::{Header, Request, EMPTY_HEADER};
-use mongodb::bson::{doc, DateTime};
+use httparse::{Request, EMPTY_HEADER};
 use regex::Regex;
-use std::env;
 use std::time::Duration;
 
-use crate::mongodbclient::MongoDbClient;
+use crate::logger::Logger;
 use crate::request_validator::RequestValidator;
 
 pub(crate) struct ParsedRequest {
@@ -47,14 +46,13 @@ impl ConnectionHandler {
 
         // Parse equest
         let request = self.parse_request().unwrap();
-        match RequestValidator::validate(&request) {
-            Ok(_) => println!("OK"),
-            Err(_) => {
-                self.send_reponse("400 Bad Request").await;
-                return;
-            }
+
+        if RequestValidator::validate(&request).is_err() {
+            self.send_reponse("400 Bad Request").await;
+            return;
         };
 
+        // Get the timeout
         let re = Regex::new(r"^/(?<timeout>\d*)$").unwrap();
         let Some(caps) = re.captures(request.path.as_str()) else {
             self.send_reponse("400 Bad Request").await;
@@ -70,43 +68,19 @@ impl ConnectionHandler {
             timeout = max_timeout;
         }
 
+        let ip_address = self.peer.ip().to_string();
+
+        spawn(async move {
+            let logger = Logger::new().await.unwrap();
+            logger.log(ip_address, timeout).await;
+        });
+
         if timeout > 0 {
             task::sleep(Duration::from_secs(timeout.try_into().unwrap())).await;
         }
 
+        // Send the response
         self.send_reponse("204 No Content").await;
-
-        let mongodb_user = env::var("BUSYAPI_MONGODB_USER").unwrap_or_default();
-        let mongodb_password = env::var("BUSYAPI_MONGODB_PASSWORD").unwrap_or_default();
-        let mongodb_host = env::var("BUSYAPI_MONGODB_HOST").unwrap_or_default();
-
-        let mongo_client =
-            match MongoDbClient::new(mongodb_user, mongodb_password, mongodb_host, "busyapi").await
-            {
-                Ok(v) => v,
-                Err(err) => {
-                    eprintln!("{:?}", err);
-                    return;
-                }
-            };
-
-        match mongo_client
-            .insert(
-                "requests",
-                doc! {
-                    "timestamp": DateTime::now(),
-                    "ipAddress": self.peer.ip().to_string(),
-                    "timeout": u32::from(timeout)
-                },
-            )
-            .await
-        {
-            Ok(_) => (),
-            Err(err) => {
-                eprintln!("{:?}", err);
-                return;
-            }
-        };
     }
 
     pub fn parse_request(&mut self) -> Result<ParsedRequest, ()> {

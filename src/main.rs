@@ -2,6 +2,7 @@ extern crate derive_builder;
 
 mod config;
 mod connection_handler;
+mod logger;
 mod mongodbclient;
 mod request_validator;
 
@@ -58,6 +59,7 @@ async fn start_server<'a>(conf: Config) {
         .for_each_concurrent(None, move |tcpstream| async move {
             let tcpstream = tcpstream.unwrap();
             let mut c = ConnectionHandler::new(tcpstream);
+
             spawn(async move {
                 c.handle_connection(conf.max_timeout).await;
             });

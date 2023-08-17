@@ -1,3 +1,5 @@
+use std::env;
+
 use mongodb::bson::Document;
 use mongodb::{options::ClientOptions, Client, Database};
 
@@ -6,12 +8,11 @@ pub struct MongoDbClient {
 }
 
 impl MongoDbClient {
-    pub async fn new(
-        username: String,
-        password: String,
-        host: String,
-        db: &str,
-    ) -> Result<MongoDbClient, String> {
+    pub async fn new(db: &str) -> Result<MongoDbClient, String> {
+        let username = env::var("BUSYAPI_MONGODB_USER").unwrap_or_default();
+        let password = env::var("BUSYAPI_MONGODB_PASSWORD").unwrap_or_default();
+        let host = env::var("BUSYAPI_MONGODB_HOST").unwrap_or_default();
+
         let mut client_options = match ClientOptions::parse(format!(
             "mongodb+srv://{}:{}@{}/?retryWrites=true&w=majority",
             username, password, host
