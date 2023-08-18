@@ -99,11 +99,6 @@ impl ConnectionHandler {
 
         // Send the response
         self.send_reponse(204).await;
-
-        let mut scores = HashMap::new();
-
-        scores.insert(200, 10);
-        scores.insert(201, 50);
     }
 
     pub fn parse_request(&mut self) -> Result<ParsedRequest, ()> {
