@@ -11,9 +11,11 @@ use crate::config::Config;
 use crate::logger::Logger;
 use crate::request_validator::RequestValidator;
 
+#[derive(Debug)]
 pub(crate) struct ParsedRequest {
     pub method: String,
     pub path: String,
+    pub real_ip: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,7 +76,10 @@ impl ConnectionHandler {
         }
 
         // Log the request
-        let ip_address = self.peer.ip().to_string();
+        let ip_address = match request.real_ip {
+            Some(ip) => ip,
+            None => self.peer.ip().to_string(),
+        };
 
         if self.config.can_log() {
             let config = self.config.clone();
@@ -99,10 +104,21 @@ impl ConnectionHandler {
         let mut request = Request::new(&mut headers);
 
         match request.parse(&self.buffer) {
-            Ok(Complete(_)) => Ok(ParsedRequest {
-                method: request.method.unwrap().to_string(),
-                path: request.path.unwrap().to_string(),
-            }),
+            Ok(Complete(_)) => {
+                let real_ip = request
+                    .headers
+                    .iter()
+                    .find(|&&h| h.name.eq_ignore_ascii_case("X-Real-IP"));
+
+                Ok(ParsedRequest {
+                    method: request.method.unwrap().to_string(),
+                    path: request.path.unwrap().to_string(),
+                    real_ip: match real_ip {
+                        Some(h) => Some(std::str::from_utf8(h.value).unwrap().to_string()),
+                        None => None,
+                    },
+                })
+            }
             Ok(Partial) => Err(()),
             Err(_) => Err(()),
         }
