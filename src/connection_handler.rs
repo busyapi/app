@@ -5,7 +5,6 @@ use async_std::{prelude::*, task};
 use httparse::Status::{Complete, Partial};
 use httparse::{Request, EMPTY_HEADER};
 use regex::Regex;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
