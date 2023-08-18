@@ -1,9 +1,11 @@
+use assoc::AssocExt;
 use async_std::net::{SocketAddr, TcpStream};
 use async_std::task::spawn;
 use async_std::{prelude::*, task};
 use httparse::Status::{Complete, Partial};
 use httparse::{Request, EMPTY_HEADER};
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -41,7 +43,7 @@ impl ConnectionHandler {
     pub async fn handle_connection(&mut self) {
         // Try to read from stream or send en error
         if self.stream.read(&mut self.buffer).await.is_err() {
-            self.send_reponse("500 Internal Server Error").await;
+            self.send_reponse(500).await;
             return;
         }
 
@@ -55,14 +57,14 @@ impl ConnectionHandler {
 
         // Validate the request
         if RequestValidator::validate(&request).is_err() {
-            self.send_reponse("400 Bad Request").await;
+            self.send_reponse(400).await;
             return;
         };
 
         // Get the timeout
         let re = Regex::new(r"^/(?<timeout>\d*)$").unwrap();
         let Some(caps) = re.captures(request.path.as_str()) else {
-            self.send_reponse("400 Bad Request").await;
+            self.send_reponse(400).await;
             return;
         };
 
@@ -96,7 +98,12 @@ impl ConnectionHandler {
         }
 
         // Send the response
-        self.send_reponse("204 No Content").await;
+        self.send_reponse(204).await;
+
+        let mut scores = HashMap::new();
+
+        scores.insert(200, 10);
+        scores.insert(201, 50);
     }
 
     pub fn parse_request(&mut self) -> Result<ParsedRequest, ()> {
@@ -124,8 +131,19 @@ impl ConnectionHandler {
         }
     }
 
-    async fn send_reponse(&mut self, status: &str) {
-        let response = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n");
+    async fn send_reponse(&mut self, code: u16) {
+        let status_codes: Vec<(u16, &str)> = vec![
+            (200, "OK"),
+            (204, "No Content"),
+            (400, "Bad Request"),
+            (500, "Internal Server Error"),
+        ];
+
+        let response = format!(
+            "HTTP/1.1 {} {}\r\nContent-Length: 0\r\n\r\n",
+            code,
+            status_codes.get(&code).unwrap()
+        );
         self.stream
             .write_all(response.as_bytes())
             .await
