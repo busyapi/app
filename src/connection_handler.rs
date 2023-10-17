@@ -134,7 +134,7 @@ impl ConnectionHandler {
         ];
 
         let response = format!(
-            "HTTP/1.1 {} {}\r\nContent-Length: 0\r\n\r\n",
+            "HTTP/1.1 {} {}\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n",
             code,
             status_codes.get(&code).unwrap()
         );
